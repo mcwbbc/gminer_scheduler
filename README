@@ -1,0 +1,5 @@
+Scheduler:
+
+The scheduler is responsible for launching workers and distributing jobs.
+
+It will keep launching workers as long as the maximum number has not been reached, and there are still available jobs.

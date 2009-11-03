@@ -1,0 +1,16 @@
+#max workers config
+
+defaults: &defaults
+  max: 5
+
+development:
+  <<: *defaults
+
+test:
+  <<: *defaults
+
+production:
+  max: 25
+
+staging:
+  max: 25
