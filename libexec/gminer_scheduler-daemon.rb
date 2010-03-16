@@ -5,10 +5,12 @@
 # of strange things might start happening...
 DaemonKit::Application.running! do |config|
   # Trap signals with blocks or procs
-  # config.trap( 'INT' ) do
-  #   # do something clever
-  # end
-  # config.trap( 'TERM', Proc.new { puts 'Going down' } )
+#  config.trap( 'INT' ) do
+#    @scheduler.listen_queue.unsubscribe
+#  end
+  config.trap( 'INT', Proc.new { @scheduler.listen_queue.unsubscribe } )
+  config.trap( 'TERM', Proc.new { @scheduler.listen_queue.unsubscribe } )
+
 end
 
 # IMPORTANT CONFIGURATION NOTE
@@ -30,15 +32,16 @@ DaemonKit::AMQP.run do
     end
   end
 
-  amq = ::MQ.new
-  
-  workers = DaemonKit::Config.load('workers')
-  worker_max = DaemonKit.arguments.options[:workers] || workers[:max]
+  @amq = ::MQ.new
+  @amq.prefetch(1)
+  @workers = DaemonKit::Config.load('workers')
+  @worker_max = DaemonKit.arguments.options[:workers] || @workers[:max]
 
-  @scheduler = GminerScheduler.new(worker_max, amq)
+  @scheduler = GminerScheduler.new(@worker_max, @amq)
   @scheduler.launch_timer
 
-  amq.queue(GminerScheduler::SCHEDULER_QUEUE_NAME).subscribe do |msg|
+  @scheduler.listen_queue.subscribe do |msg|
+#    DaemonKit.logger.debug("MSG: #{msg}")
     @scheduler.process(msg)
   end
 end

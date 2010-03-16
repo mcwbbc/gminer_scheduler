@@ -16,15 +16,32 @@ describe Worker do
 
   describe "free" do
     it "should set the worker to working false and send a prepare message" do
-      Worker.should_receive(:update_all).with({:working => false}, :worker_key => "1234").and_return(true)
-      Worker.free("1234").should be_true
+      worker = Worker.new
+      worker.should_receive(:save!).and_return(true)
+      worker.free.should be_true
     end
   end
 
   describe "working" do
     it "should set the worker to working true" do
-      Worker.should_receive(:update_all).with({:working => true}, :worker_key => "1234").and_return(true)
-      Worker.working("1234").should be_true
+      worker = Worker.new
+      worker.should_receive(:save!).and_return(true)
+      worker.working.should be_true
     end
   end
+
+  describe "crashed?" do
+    it "should be true if more than 2 minutes ago" do
+      w = Worker.new(:updated_at => 3.minutes.ago)
+      w.crashed?.should == true
+    end
+
+    it "should be false if less than 2 minutes ago" do
+      w = Worker.new(:updated_at => 1.minutes.ago)
+      w.crashed?.should == false
+    end
+  end
+
+
 end
+

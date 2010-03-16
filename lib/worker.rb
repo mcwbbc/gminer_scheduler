@@ -10,14 +10,20 @@ class Worker < ActiveRecord::Base
         first(:conditions => {:working => false, :ready => true})
       end
     end
+  end
 
-    def free(worker_key)
-      Worker.update_all({:working => false}, :worker_key => worker_key)
-    end
+  def free
+    self.working = false
+    self.save!
+  end
 
-    def working(worker_key)
-      Worker.update_all({:working => true}, :worker_key => worker_key)
-    end
+  def working
+    self.working = true
+    self.save!
+  end
+
+  def crashed?
+    self.updated_at < 2.minutes.ago
   end
 
 end

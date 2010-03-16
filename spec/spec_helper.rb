@@ -1,3 +1,5 @@
+DAEMON_ENV = 'test' unless defined?( DAEMON_ENV )
+
 begin
   require 'spec'
 rescue LoadError
@@ -18,4 +20,12 @@ Spec::Runner.configure do |config|
   # config.mock_with :mocha
   # config.mock_with :flexmock
   # config.mock_with :rr
+end
+
+def clean
+  ActiveRecord::Base.connection.execute("SET FOREIGN_KEY_CHECKS = 0;")
+  (ActiveRecord::Base.connection.tables - %w{schema_migrations}).each do |table_name|
+    ActiveRecord::Base.connection.execute("TRUNCATE TABLE #{table_name};")
+  end
+  ActiveRecord::Base.connection.execute("SET FOREIGN_KEY_CHECKS = 1;")
 end
