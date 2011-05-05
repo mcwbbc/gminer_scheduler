@@ -1,4 +1,4 @@
-require File.dirname(__FILE__) + '/../spec_helper'
+require 'spec_helper'
 
 describe GminerScheduler do
 
@@ -6,8 +6,6 @@ describe GminerScheduler do
     clean
     @worker_max = 5
     @queue = mock("queue")
-    @lq = mock("listen_queue")
-    @queue.stub!(:bind).and_return(@lq)
     @mq = mock("message_queue")
     @mq.stub!(:queue).and_return(@queue)
     @s = GminerScheduler.new(@worker_max, @mq)
@@ -19,10 +17,8 @@ describe GminerScheduler do
 
   describe "publish" do
     it "should publish a message to a queue" do
-      queue = mock("queue")
-      @mq.should_receive(:queue).with("xqueue", {:durable=>true}).and_return(queue)
-      queue.should_receive(:publish).with("message", :persistent => true).and_return(true)
-      @s.publish("xqueue", "message")
+      @queue.should_receive(:publish).with("message", :persistent => true).and_return(true)
+      @s.publish("queue", "message")
     end
   end
 
@@ -35,12 +31,28 @@ describe GminerScheduler do
   end
 
   describe "send_job" do
-    it "should set the worker working and send a job message" do
-      worker = Worker.new
-      @s.should_receive(:get_worker).with("1234").and_return(worker)
-      worker.should_receive(:working).and_return(true)
-      @s.should_receive(:publish).with("1234", "{\"command\":\"job\",\"key\":\"value\"}").and_return(true)
-      @s.send_job("1234", {'key' => 'value'}).should be_true
+    describe "with worker" do
+      it "should set the worker working and send a job message" do
+        ontology = Ontology.new(:stopwords => "stop", :expand_ontologies => '1150')
+        job = Job.new(:ontology => ontology, :field_name => 'description')
+        dataset = Dataset.new(:description => 'desc')
+        worker = Worker.new
+        @s.should_receive(:get_worker).with("1234").and_return(worker)
+        worker.should_receive(:working).and_return(true)
+        @s.should_receive(:publish).with("1234", "{\"email\":\"jfgeiger@mcw.edu\",\"job_id\":null,\"geo_accession\":null,\"field\":\"description\",\"value\":\"desc\",\"description\":null,\"ncbo_id\":null,\"ontology_name\":null,\"stopwords\":\"a,about,above,across,after,again,against,all,almost,alone,along,already,also,although,always,among,an,and,another,any,anybody,anyone,anything,anywhere,are,area,areas,around,as,ask,asked,asking,asks,at,away,b,back,backed,backing,backs,be,became,because,become,becomes,been,before,began,behind,being,beings,best,better,between,big,both,but,by,c,came,can,cannot,case,cases,certain,certainly,clear,clearly,come,could,d,did,differ,different,differently,do,does,done,down,down,downed,downing,downs,during,e,each,early,either,end,ended,ending,ends,enough,even,evenly,ever,every,everybody,everyone,everything,everywhere,f,face,faces,fact,facts,far,felt,few,find,finds,first,for,four,from,full,fully,further,furthered,furthering,furthers,g,gave,general,generally,get,gets,give,given,gives,go,going,good,goods,got,great,greater,greatest,group,grouped,grouping,groups,h,had,has,have,having,he,her,here,herself,high,high,high,higher,highest,him,himself,his,how,however,i,if,important,in,interest,interested,interesting,interests,into,is,it,its,itself,j,just,k,keep,keeps,kind,knew,know,known,knows,l,large,largely,last,later,latest,least,less,let,lets,like,likely,long,longer,longest,m,made,make,making,man,many,may,me,member,members,men,might,more,most,mostly,mr,mrs,much,must,my,myself,n,necessary,need,needed,needing,needs,never,new,new,newer,newest,next,no,nobody,non,noone,not,nothing,now,nowhere,number,numbers,o,of,off,often,old,older,oldest,on,once,one,only,open,opened,opening,opens,or,order,ordered,ordering,orders,other,others,our,out,over,p,part,parted,parting,parts,per,perhaps,place,places,point,pointed,pointing,points,possible,present,presented,presenting,presents,problem,problems,put,puts,q,quite,r,rather,really,right,right,room,rooms,s,said,same,saw,say,says,second,seconds,see,seem,seemed,seeming,seems,sees,several,shall,she,should,show,showed,showing,shows,side,sides,since,small,smaller,smallest,so,some,somebody,someone,something,somewhere,state,states,still,still,such,sure,t,take,taken,than,that,the,their,them,then,there,therefore,these,they,thing,things,think,thinks,this,those,though,thought,thoughts,three,through,thus,to,today,together,too,took,toward,turn,turned,turning,turns,two,u,under,until,up,upon,us,use,used,uses,v,very,w,want,wanted,wanting,wants,was,way,ways,we,well,wells,went,were,what,when,where,whether,which,while,who,whole,whose,why,will,with,within,without,work,worked,working,works,would,x,y,year,years,yet,you,young,younger,youngest,your,yours,z,et,al,stop\",\"expand_ontologies\":\"1150\",\"command\":\"job\"}").and_return(true)
+        @s.send_job("1234", job, dataset).should be_true
+      end
+    end
+
+    describe "without worker" do
+      it "should fail to send a job if no wo" do
+        dataset = Dataset.new
+        job = Job.new
+        @s.should_receive(:get_worker).with("1234").and_return(nil)
+        job.should_receive(:failed).and_return(true)
+        @s.should_receive(:publish).with("1234", "{\"command\":\"shutdown\"}").and_return(true)
+        @s.send_job("1234", job, dataset).should be_true
+      end
     end
   end
 
@@ -119,7 +131,7 @@ describe GminerScheduler do
   describe "working_job" do
     it "should update the job attributes" do
       job = Job.new
-      Job.should_receive(:find).with(:first, {:conditions=>{:id=>"12"}}).and_return(job)
+      Job.should_receive(:first).with(:conditions=>{:id=>"12"}).and_return(job)
       job.should_receive(:working).and_return(true)
       @s.working_job("1234","12")
     end
@@ -128,7 +140,7 @@ describe GminerScheduler do
   describe "finished_job" do
     it "should update the job attributes" do
       job = Job.new
-      Job.should_receive(:find).with(:first, {:conditions=>{:id=>"12"}}).and_return(job)
+      Job.should_receive(:first).with(:conditions=>{:id=>"12"}).and_return(job)
       job.should_receive(:finished).and_return(true)
       worker = Worker.new
       @s.should_receive(:get_worker).with("1234").and_return(worker)
@@ -141,7 +153,7 @@ describe GminerScheduler do
   describe "failed_job" do
     it "should update the job attributes" do
       job = Job.new
-      Job.should_receive(:find).with(:first, {:conditions=>{:id=>"12"}}).and_return(job)
+      Job.should_receive(:first).with(:conditions=>{:id=>"12"}).and_return(job)
       job.should_receive(:failed).and_return(true)
       worker = Worker.new
       @s.should_receive(:get_worker).with("1234").and_return(worker)
@@ -153,29 +165,41 @@ describe GminerScheduler do
 
   describe "launch timer" do
     before(:each) do
-      EM.should_receive(:add_periodic_timer).with(10).and_yield("timer")
+      EM.should_receive(:add_periodic_timer).with(5).and_yield#("timer")
     end
 
     describe "if needed" do
       it "should launch more" do
+        Worker.should_receive(:available).with(:count => true).and_return(0)
         Worker.should_receive(:count).and_return(5)
         Job.should_receive(:available).with(:count => true).and_return(5)
         @s.should_receive(:worker_max).and_return(10)
-        @s.should_receive(:publish).with(GminerScheduler::NODE_QUEUE_NAME, {'command' => 'launch'}.to_json).and_return(true)
+        @s.node_queue.should_receive(:publish).with({'command' => 'launch'}.to_json, :persistent => true).and_return(true)
         @s.launch_timer
       end
 
       it "should launch more for 1 job" do
+        Worker.should_receive(:available).with(:count => true).and_return(0)
         Worker.should_receive(:count).and_return(5)
         Job.should_receive(:available).with(:count => true).and_return(1)
         @s.should_receive(:worker_max).and_return(10)
-        @s.should_receive(:publish).with(GminerScheduler::NODE_QUEUE_NAME, {'command' => 'launch'}.to_json).and_return(true)
+        @s.node_queue.should_receive(:publish).with({'command' => 'launch'}.to_json, :persistent => true).and_return(true)
         @s.launch_timer
       end
     end
 
     describe "not needed" do
+      it "should not launch more if workers available" do
+        Worker.should_receive(:available).with(:count => true).and_return(1)
+        Worker.should_receive(:count).and_return(4)
+        Job.should_receive(:available).with(:count => true).and_return(2)
+        @s.should_receive(:worker_max).and_return(5)
+        @s.should_not_receive(:publish)
+        @s.launch_timer
+      end
+
       it "should not launch more if at worker max" do
+        Worker.should_receive(:available).with(:count => true).and_return(0)
         Worker.should_receive(:count).and_return(5)
         Job.should_receive(:available).with(:count => true).and_return(2)
         @s.should_receive(:worker_max).and_return(5)
@@ -184,6 +208,7 @@ describe GminerScheduler do
       end
 
       it "should not launch more if no more jobs" do
+        Worker.should_receive(:available).with(:count => true).and_return(0)
         Worker.should_receive(:count).and_return(2)
         Job.should_receive(:available).with(:count => true).and_return(0)
         @s.should_receive(:worker_max).and_return(5)
@@ -226,16 +251,14 @@ describe GminerScheduler do
         describe "with blank field value" do
           it "should not send the job request and mark it finished" do
             worker = Worker.new
-            @s.should_receive(:get_worker).with("1234").and_return(worker)
-            @job.should_receive(:started).with("1234").and_return(true)
-            
+
             @platform = Gminer::Platform.new
             @platform.should_receive(:description).and_return("")
-            Job.should_receive(:load_item).with("GPL1355").and_return(@platform)
-            @job.should_receive(:field).and_return("description")
-            @job.should_receive(:geo_accession).and_return("GPL1355")
 
-            @job.should_receive(:finished).and_return(true)
+            @job.should_receive(:field_name).and_return("description")
+            @job.should_receive(:geo_accession).and_return("GPL1355")
+            Job.should_receive(:load_item).with("GPL1355").and_return(@platform)
+            @job.should_receive(:has_blank_field).and_return(true)
             @s.should_receive(:free_or_shutdown).with("1234").and_return(true)
 
             @s.start_job("1234")
@@ -247,32 +270,19 @@ describe GminerScheduler do
             worker = Worker.new
             @s.should_receive(:get_worker).with("1234").and_return(worker)
             @job.stub!(:id).and_return(12)
-            @job.stub!(:field).and_return("description")
+            @job.stub!(:field_name).and_return("description")
             @job.stub!(:geo_accession).and_return("GPL1355")
             @job.should_receive(:started).with("1234").and_return(true)
             @platform = Gminer::Platform.new
-            @platform.should_receive(:description).twice.and_return("platform")
-            @platform.should_receive(:descriptive_text).and_return("Platform Title")
+            @platform.should_receive(:description).and_return("platform")
             Job.should_receive(:load_item).with("GPL1355").and_return(@platform)
             @ontology = Ontology.new
-            @ontology.should_receive(:ncbo_id).and_return("1000")
             @job.stub!(:ontology).and_return(@ontology)
           end
 
-          describe "with empty stopwords" do
-            it "should process the job" do
-              @ontology.should_receive(:stopwords).and_return("")
-              @s.should_receive(:send_job).with("1234", {'stopwords' => Constants::STOPWORDS, "ncbo_id" => "1000", "geo_accession" => "GPL1355", "value" => "platform", "field" => "description", "description" => "Platform Title", "job_id" => @job.id, "email"=>"jfgeiger@mcw.edu"}).and_return(true)
-              @s.start_job("1234")
-            end
-          end
-
-          describe "with custom stopwords" do
-            it "should process the job" do
-              @ontology.should_receive(:stopwords).and_return("stopwords")
-              @s.should_receive(:send_job).with("1234", {'stopwords' => Constants::STOPWORDS+'stopwords', "ncbo_id" => "1000", "geo_accession" => "GPL1355", "value" => "platform", "field" => "description", "description" => "Platform Title", "job_id" => @job.id, "email"=>"jfgeiger@mcw.edu"}).and_return(true)
-              @s.start_job("1234")
-            end
+          it "should process the job" do
+            @s.should_receive(:send_job).with("1234", @job, @platform).and_return(true)
+            @s.start_job("1234")
           end
         end
       end
@@ -280,8 +290,6 @@ describe GminerScheduler do
 
     describe "without an available job" do
       it "should call no jobs" do
-        worker = Worker.new
-        @s.should_receive(:get_worker).with("1234").and_return(worker)
         Job.should_receive(:available).and_return(nil)
         @s.should_receive(:no_jobs).with("1234").and_return(true)
         @s.start_job("1234")

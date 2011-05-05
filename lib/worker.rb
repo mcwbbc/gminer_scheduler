@@ -17,13 +17,13 @@ class Worker < ActiveRecord::Base
     self.save!
   end
 
-  def working
+  def doing_work
     self.working = true
     self.save!
   end
 
   def crashed?
-    self.updated_at < 2.minutes.ago
+    (self.working && self.updated_at < 2.minutes.ago)
   end
 
 end

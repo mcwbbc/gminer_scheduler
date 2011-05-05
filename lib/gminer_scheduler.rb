@@ -5,16 +5,17 @@ class GminerScheduler
   SCHEDULER_QUEUE_NAME = 'gminer-scheduler'
   NODE_QUEUE_NAME = 'gminer-node'
 
-  attr_accessor :worker_max, :mq, :listen_queue
+  attr_accessor :worker_max, :mq, :listen_queue, :node_queue
 
   def initialize(worker_max, mq)
     @worker_max = worker_max.to_i
     @mq = mq
     @listen_queue = mq.queue(GminerScheduler::SCHEDULER_QUEUE_NAME, :durable => true)
+    @node_queue = mq.queue(GminerScheduler::NODE_QUEUE_NAME, :durable => true)
   end
 
   def publish(name, msg)
-    mq.queue(name).publish(msg, :persistent => true)
+    mq.queue(name, :auto_delete => true).publish(msg, :persistent => true)
 #    DaemonKit.logger.debug("SENT: #{msg} to #{name}")
   end
 
@@ -43,7 +44,7 @@ class GminerScheduler
 
   def status_worker(worker_key, processing)
     if processing && (w = get_worker(worker_key))
-      w.working
+      w.doing_work
     else
       free_or_shutdown(worker_key)
     end
@@ -54,35 +55,37 @@ class GminerScheduler
     publish(worker_key, {'command' => 'status'}.to_json)
   end
 
-  def send_job(worker_key, params)
+  def send_job(worker_key, job, item)
     if w = get_worker(worker_key)
-      w.working
+      w.doing_work
+      stopwords = [Constants::STOPWORDS,job.ontology.stopwords].join(",")
+      params = {'email' => Constants::EMAIL, 'job_id' => job.id, 'geo_accession' => job.geo_accession, 'field' => job.field_name, 'value' => item.send(job.field_name), 'description' => item.descriptive_text, 'ncbo_id' => job.ontology.ncbo_id, 'ontology_name' => job.ontology.name, 'stopwords' => stopwords, 'expand_ontologies' => job.ontology.expand_ontologies}
       publish(worker_key, params.merge!({'command' => 'job'}).to_json)
     else
+      job.failed
       publish(worker_key, {'command' => 'shutdown'}.to_json)
     end
 #    DaemonKit.logger.debug("send job: worker:#{worker_key}")
   end
 
   def start_job(worker_key)
-    if w = get_worker(worker_key)
-      if job = Job.available
-        job.started(worker_key)
-        item = Job.load_item(job.geo_accession)
-        if !item.send(job.field).blank?
-          stopwords = Constants::STOPWORDS+job.ontology.stopwords
-          params = {'email' => Constants::EMAIL, 'job_id' => job.id, 'geo_accession' => job.geo_accession, 'field' => job.field, 'value' => item.send(job.field), 'description' => item.descriptive_text, 'ncbo_id' => job.ontology.ncbo_id, 'stopwords' => stopwords}
-          send_job(worker_key, params)
-          DaemonKit.logger.debug("start job: #{job.id} worker:#{worker_key}")
+    if job = Job.available
+      item = Job.load_item(job.geo_accession)
+      if item.send(job.field_name).blank?
+#        DaemonKit.logger.debug("job field blank: #{job.id} worker:#{worker_key}")
+        job.has_blank_field
+        free_or_shutdown(worker_key)
+      else
+#       DaemonKit.logger.debug("start job: #{job.id} worker:#{worker_key}")
+        if w = get_worker(worker_key)
+          job.started(worker_key)
+          send_job(worker_key, job, item)
         else
-          job.finished
           free_or_shutdown(worker_key)
         end
-      else
-        no_jobs(worker_key)
       end
     else
-      free_or_shutdown(worker_key)
+      no_jobs(worker_key)
     end
   end
 
@@ -112,19 +115,21 @@ class GminerScheduler
       DaemonKit.logger.debug("ERROR: missing job: #{job_id}")
     end
     free_or_shutdown(worker_key)
-    DaemonKit.logger.debug("finished job: #{worker_key} -- #{job_id}")
+#    DaemonKit.logger.debug("finished job: #{worker_key} -- #{job_id}")
   end
 
   def launch_timer
     DaemonKit.logger.debug("running launch timer")
-    EM.add_periodic_timer(10) do
+    EM.add_periodic_timer(5) do
       worker_status_check
       worker_count = Worker.count
+      workers_available = Worker.available(:count => true)
       job_count = Job.available(:count => true)
-      DaemonKit.logger.debug("Workers: #{worker_count}")
+      DaemonKit.logger.debug("Workers available: #{workers_available}")
+      DaemonKit.logger.debug("Worker count: #{worker_count}")
       DaemonKit.logger.debug("jobs: #{job_count}")
-      launch_it = (worker_count < worker_max && job_count > 0)
-      publish(GminerScheduler::NODE_QUEUE_NAME, {'command' => 'launch'}.to_json) if launch_it
+      launch_it = (worker_count < worker_max && job_count > 0 && workers_available == 0)
+      node_queue.publish({'command' => 'launch'}.to_json, :persistent => true) if launch_it
     end
   end
 
@@ -146,9 +151,11 @@ class GminerScheduler
 
   def free_or_shutdown(worker_key)
     if w = get_worker(worker_key)
+#      DaemonKit.logger.debug("Freed worker: #{worker_key}")
       w.free
       publish(worker_key, {'command' => 'prepare'}.to_json)
     else
+      DaemonKit.logger.debug("Shutdown worker: #{worker_key}")
       publish(worker_key, {'command' => 'shutdown'}.to_json)
     end
   end

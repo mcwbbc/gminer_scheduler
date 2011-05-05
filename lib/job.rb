@@ -7,17 +7,14 @@ class Job < ActiveRecord::Base
   class << self
     def available(*hash)
       hash = hash.any? ? hash.first : {}
-      options = {:expired_at => 6.months.ago.to_f, :crashed_at => 5.minutes.ago.to_f}.merge!(hash)
+      options = {:crashed_at => 5.minutes.ago.to_f}.merge!(hash)
+      sql = "(worker_key IS NULL AND finished_at IS NULL)"
+      sql << " OR (worker_key IS NOT NULL AND ((started_at IS NULL) OR (started_at < ?)))"
+      sql << " OR (worker_key IS NULL AND finished_at IS NOT NULL AND ((working_at IS NULL) OR (started_at IS NULL)))"
       if options[:count]
-        Job.count(:conditions => ["(worker_key IS NULL AND (finished_at IS NULL OR finished_at < ?)) OR (worker_key IS NOT NULL AND started_at < ?)", options[:expired_at], options[:crashed_at]])
+        Job.count(:conditions => [sql, options[:crashed_at]])
       else
-        Job.first(:conditions => ["(worker_key IS NULL AND (finished_at IS NULL OR finished_at < ?)) OR (worker_key IS NOT NULL AND started_at < ?)", options[:expired_at], options[:crashed_at]])
-      end
-    end
-
-    def create_for(geo_accession, ontology_id, field)
-      if !j = Job.first(:conditions => {:geo_accession => geo_accession, :field => field, :ontology_id => ontology_id})
-        Job.create(:geo_accession => geo_accession, :field => field, :ontology_id => ontology_id)
+        Job.first(:conditions => [sql, options[:crashed_at]])
       end
     end
 
@@ -36,6 +33,11 @@ class Job < ActiveRecord::Base
     end
   end
 
+  def has_blank_field
+    now = Time.now.to_f
+    update_attributes(:started_at => now, :working_at => now, :finished_at => now)
+  end
+
   def started(worker_key)
     update_attributes(:worker_key => worker_key, :started_at => Time.now.to_f)
   end
@@ -49,6 +51,6 @@ class Job < ActiveRecord::Base
   end
 
   def failed
-    update_attributes(:started_at => nil, :finished_at => nil, :worker_key => nil)
+    update_attributes(:started_at => nil, :finished_at => nil, :working_at => nil, :worker_key => nil)
   end
 end

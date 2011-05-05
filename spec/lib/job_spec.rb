@@ -1,4 +1,4 @@
-require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
+require 'spec_helper'
 
 describe Job do
 
@@ -32,22 +32,8 @@ describe Job do
   describe "failed" do
     it "should update the job status to failed" do
       job = Job.new
-      job.should_receive(:update_attributes).with(:worker_key => nil, :started_at => nil, :finished_at => nil).and_return(true)
+      job.should_receive(:update_attributes).with(:started_at => nil, :finished_at => nil, :working_at => nil, :worker_key => nil).and_return(true)
       job.failed.should be_true
-    end
-  end
-
-  describe "create_for" do
-    it "should create jobs for the geo accession and it's fields if it doesn't exist" do
-      Job.should_receive(:first).with(:conditions => {:geo_accession => "GPL12", :field => "description", :ontology_id => "2"}).and_return(nil)
-      Job.should_receive(:create).with(:geo_accession => "GPL12", :field => "description", :ontology_id => "2").and_return(true)
-      Job.create_for("GPL12", "2", "description")
-    end
-
-    it "should create jobs for the geo accession and it's fields if it doesn't exist" do
-      job = Job.new
-      Job.should_receive(:first).with(:conditions => {:geo_accession => "GPL12", :field => "description", :ontology_id => "2"}).and_return(job)
-      Job.create_for("GPL12", "2", "description")
     end
   end
 
@@ -59,15 +45,15 @@ describe Job do
     it "should return the first available job" do
       # (worker_key IS NULL AND (finished_at IS NULL OR finished_at < 2.weeks.ago)) OR (worker_key IS NOT NULL AND started_at < 5.minutes.ago)
       right_now = Time.now.to_f
-      Job.should_receive(:first).with(:conditions => ["(worker_key IS NULL AND (finished_at IS NULL OR finished_at < ?)) OR (worker_key IS NOT NULL AND started_at < ?)", right_now, right_now]).and_return(@one)
+      Job.should_receive(:first).with(:conditions => ["(worker_key IS NULL AND finished_at IS NULL) OR (worker_key IS NOT NULL AND ((started_at IS NULL) OR (started_at < ?))) OR (worker_key IS NULL AND finished_at IS NOT NULL AND ((working_at IS NULL) OR (started_at IS NULL)))", right_now]).and_return(@one)
       Job.available(:expired_at => right_now, :crashed_at => right_now).should == @one
     end
 
     it "should return the count of available jobs" do
       right_now = Time.now.to_f
-      Job.should_receive(:count).with(:conditions => ["(worker_key IS NULL AND (finished_at IS NULL OR finished_at < ?)) OR (worker_key IS NOT NULL AND started_at < ?)", right_now, right_now]).and_return(10)
+      Job.should_receive(:count).with(:conditions => ["(worker_key IS NULL AND finished_at IS NULL) OR (worker_key IS NOT NULL AND ((started_at IS NULL) OR (started_at < ?))) OR (worker_key IS NULL AND finished_at IS NOT NULL AND ((working_at IS NULL) OR (started_at IS NULL)))", right_now]).and_return(10)
       Job.available(:expired_at => right_now, :crashed_at => right_now, :count => true).should == 10
     end
   end
-  
+
 end

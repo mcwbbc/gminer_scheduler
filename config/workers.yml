@@ -6,11 +6,5 @@ defaults: &defaults
 development:
   <<: *defaults
 
-test:
-  <<: *defaults
-
-production:
-  max: 25
-
-staging:
-  max: 25
+processing:
+  max: 15

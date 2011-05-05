@@ -27,3 +27,7 @@ test:
 production:
   <<: *defaults
   vhost: /gminer-production
+
+processing:
+  <<: *defaults
+  vhost: /gminer-processing
